@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4f7ff">
+  <meta name="description" content="لعبة عربية بسيطة للأطفال لتعلّم الحيوانات والألوان والأشكال والأرقام والحروف.">
+  <title>نتعلّم باللعب — جاري تجهيز اللعبة</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f4f7ff;color:#25304a;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+    main{width:min(100%,460px);padding:30px 24px;border-radius:26px;background:#fff;box-shadow:0 14px 48px #263b6418;text-align:center}
+    .cat{font-size:64px;line-height:1.2}
+    h1{font-size:25px;margin:12px 0 8px}
+    p{margin:0;color:#68738c;line-height:1.8}
+    .track{height:10px;margin:24px 0 10px;border-radius:30px;background:#edf0f8;overflow:hidden}
+    .fill{height:100%;width:8%;border-radius:30px;background:#7b8df5;transition:width .2s}
+    #status{font-size:14px;color:#68738c}
+    #error{display:none;margin-top:18px;padding:12px;border-radius:14px;background:#fff1f0;color:#a3342b;font-size:14px;line-height:1.8}
+    a{color:#4d63d9}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="cat" aria-hidden="true">🐱</div>
+    <h1>نتعلّم باللعب</h1>
+    <p>نجهّز اللعبة على جهازك للمرة الأولى…</p>
+    <div class="track" aria-hidden="true"><div id="fill" class="fill"></div></div>
+    <div id="status" role="status" aria-live="polite">جاري تحميل ملفات اللعبة</div>
+    <div id="error"></div>
+  </main>
+  <script>
+  (async function () {
+    const CACHE_NAME = 'arabic-learning-game-runtime-v1';
+    const base = new URL('./', window.location.href);
+    const status = document.getElementById('status');
+    const fill = document.getElementById('fill');
+    const errorBox = document.getElementById('error');
+    const say = (message, percent) => {
+      status.textContent = message;
+      if (typeof percent === 'number') fill.style.width = percent + '%';
+    };
+    const fail = (message) => {
+      errorBox.style.display = 'block';
+      errorBox.textContent = message;
+      status.textContent = 'تعذّر تجهيز اللعبة';
+    };
+    const mime = (path) => {
+      const ext = path.toLowerCase().split('.').pop();
+      return ({
+        html:'text/html; charset=utf-8', css:'text/css; charset=utf-8',
+        js:'text/javascript; charset=utf-8', json:'application/json; charset=utf-8',
+        png:'image/png', webp:'image/webp', jpg:'image/jpeg', jpeg:'image/jpeg',
+        mp3:'audio/mpeg', svg:'image/svg+xml', ico:'image/x-icon'
+      })[ext] || 'application/octet-stream';
+    };
+    try {
+      if (!('serviceWorker' in navigator) || !('caches' in window)) {
+        throw new Error('يرجى فتح الرابط في متصفح حديث يدعم التخزين دون إنترنت، مثل Chrome أو Safari.');
+      }
+      const cache = await caches.open(CACHE_NAME);
+      const appIndexUrl = new URL('index.html', base);
+      const savedIndex = await cache.match(appIndexUrl);
+
+      if (!savedIndex) {
+        say('جاري تحميل الحزمة…', 8);
+        const zipUrl = new URL('site-package.zip', base);
+        const response = await fetch(zipUrl.href, {cache:'no-store'});
+        if (!response.ok) throw new Error('لم نتمكن من تحميل ملفات اللعبة. تأكد من نشر المستودع من main ثم أعد المحاولة.');
+        const zipBuffer = await response.arrayBuffer();
+
+        say('جاري فكّ ملفات اللعبة…', 18);
+        if (!window.JSZip) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+            script.onload = resolve;
+            script.onerror = () => reject(new Error('تعذّر تحميل أداة فكّ الملفات. تحقق من اتصال الإنترنت ثم أعد فتح الصفحة.'));
+            document.head.appendChild(script);
+          });
+        }
+        const zip = await window.JSZip.loadAsync(zipBuffer);
+        const files = Object.values(zip.files).filter(entry => !entry.dir);
+        let done = 0;
+        let appIndexResponse = null;
+        for (const entry of files) {
+          const path = entry.name.replace(/^\.\//, '');
+          if (!path || path.startsWith('/') || path.split('/').includes('..')) continue;
+          const blob = await entry.async('blob');
+          const headers = {'Content-Type': mime(path), 'Cache-Control':'no-store'};
+          const fileResponse = new Response(blob, {headers});
+          const fileUrl = new URL(path, base);
+          await cache.put(fileUrl.href, fileResponse.clone());
+          if (path === 'index.html') appIndexResponse = fileResponse.clone();
+          done++;
+          say('جاري تجهيز الملفات ' + done + ' / ' + files.length, 18 + Math.round(72 * done / files.length));
+        }
+        if (!appIndexResponse) throw new Error('الحزمة لا تحتوي على index.html.');
+        await cache.put(base.href, appIndexResponse.clone());
+      }
+
+      say('اكتمل التجهيز، جاري فتح اللعبة…', 100);
+      await navigator.serviceWorker.register(new URL('sw.js', base).href, {scope:base.pathname});
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('انتهى وقت تفعيل وضع التخزين. أعد تحميل الصفحة مرة أخرى.')), 12000);
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            clearTimeout(timeout);
+            resolve();
+          }, {once:true});
+        });
+      }
+      window.location.replace(new URL('index.html', base).href);
+    } catch (error) {
+      console.error(error);
+      fail(error && error.message ? error.message : 'حدث خطأ غير متوقع أثناء تجهيز اللعبة.');
+    }
+  })();
+  </script>
+</body>
+</html>
