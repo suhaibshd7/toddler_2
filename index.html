@@ -104,11 +104,20 @@
       await navigator.serviceWorker.ready;
       if (!navigator.serviceWorker.controller) {
         await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('انتهى وقت تفعيل وضع التخزين. أعد تحميل الصفحة مرة أخرى.')), 12000);
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            clearTimeout(timeout);
-            resolve();
-          }, {once:true});
+          let timeout;
+          const checkController = () => {
+            if (navigator.serviceWorker.controller) {
+              clearTimeout(timeout);
+              navigator.serviceWorker.removeEventListener('controllerchange', checkController);
+              resolve();
+            }
+          };
+          navigator.serviceWorker.addEventListener('controllerchange', checkController);
+          timeout = setTimeout(() => {
+            navigator.serviceWorker.removeEventListener('controllerchange', checkController);
+            reject(new Error('انتهى وقت تفعيل وضع التخزين. أعد تحميل الصفحة مرة أخرى.'));
+          }, 12000);
+          checkController();
         });
       }
       window.location.replace(new URL('index.html', base).href);
